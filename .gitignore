@@ -1,0 +1,11 @@
+node_modules/
+test_output*.log
+tests_e2e.log
+.env
+*.log
+
+# Agent working files
+.agents/
+
+# Scripts
+git-push.cmd

@@ -1,0 +1,11 @@
+{
+    "antigravity.ai.provider": "openai-compatible",
+    "antigravity.openai-compatible.endpoint": "https://api.deepseek.com/v1",
+    "antigravity.openai-compatible.apiKey": "sk-26c74991dc9e4dca9e783abd0bade406",
+    "antigravity.ai.model": "deepseek-v4-flash",
+    "antigravity.agent.enabled": true,
+    "antigravity.agent.provider": "openai-compatible",
+    "antigravity.agent.openai-compatible.endpoint": "https://api.deepseek.com/v1",
+    "antigravity.agent.openai-compatible.apiKey": "sk-26c74991dc9e4dca9e783abd0bade406",
+    "antigravity.agent.model": "deepseek-v4-pro"
+}

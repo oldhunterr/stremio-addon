@@ -1,0 +1,11 @@
+{
+  "id": "ristoanime",
+  "name": "RistoAnime",
+  "baseUrl": "https://ristoanime.me",
+  "enabled": true,
+  "needsFlareSolverr": false,
+  "catalogs": [
+    { "id": "all", "name": "الأنمي", "type": "series" }
+  ],
+  "providers": ["mp4upload", "mega", "uqload"]
+}

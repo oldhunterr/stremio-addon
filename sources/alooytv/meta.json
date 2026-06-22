@@ -1,0 +1,18 @@
+{
+  "id": "alooytv",
+  "name": "AlooYTV",
+  "baseUrl": "https://n.alooytv13.xyz",
+  "enabled": true,
+  "needsFlareSolverr": false,
+  "logo": "https://n.alooytv13.xyz/uploads/system_logo/favicon.ico",
+  "catalogs": [
+    { "id": "all",     "name": "الكل",   "type": "series" },
+    { "id": "arabic",  "name": "عربي",   "type": "series" },
+    { "id": "kleeji",  "name": "خليجي",  "type": "series" },
+    { "id": "turki",   "name": "تركي",   "type": "series" },
+    { "id": "korean",  "name": "كوري",   "type": "series" },
+    { "id": "foreign", "name": "أجنبي",  "type": "series" },
+    { "id": "anime",   "name": "أنمي",   "type": "series" }
+  ],
+  "providers": []
+}

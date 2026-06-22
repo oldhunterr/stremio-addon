@@ -1,0 +1,23 @@
+{
+  "id": "kawaiianime",
+  "name": "Kawaii Anime",
+  "baseUrl": "https://www.kawaii-anime.com",
+  "enabled": true,
+  "needsFlareSolverr": false,
+  "logo": "https://www.kawaii-anime.com/favicon.png",
+  "genres": [
+    "Action","Adventure","Comedy","Drama","Fantasy","Horror","Mystery",
+    "Romance","Sci-Fi","Slice of Life","Sports","Supernatural","Thriller",
+    "Mecha","Music","Psychological","Historical","School"
+  ],
+  "types": ["TV", "MOVIE", "OVA", "ONA", "SPECIAL"],
+  "extraSupported": ["genre", "type"],
+  "catalogs": [
+    { "id": "TRENDING_DESC",   "name": "الأكثر رواجاً",  "type": "series" },
+    { "id": "POPULARITY_DESC", "name": "الأكثر شعبية",   "type": "series" },
+    { "id": "SCORE_DESC",      "name": "الأعلى تقييماً", "type": "series" },
+    { "id": "START_DATE_DESC", "name": "الأحدث",          "type": "series" },
+    { "id": "FAVOURITES_DESC", "name": "الأكثر تفضيلاً", "type": "series" }
+  ],
+  "providers": []
+}

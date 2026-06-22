@@ -1,0 +1,86 @@
+{
+  "id": "arabseed",
+  "name": "عرب سيد — ArabSeed",
+  "baseUrl": "https://a.asd.ink",
+  "enabled": true,
+  "needsFlareSolverr": false,
+  "logo": "https://a.asd.ink/lgo222.png",
+  "searchEnabled": true,
+  "extraSupported": ["category", "genre", "type"],
+
+  "subcategories": {
+    "movies": [
+      {"id":"all","name":"الكل"},
+      {"id":"foreign","name":"أفلام أجنبية"},
+      {"id":"arabic","name":"أفلام عربية"},
+      {"id":"turkish","name":"أفلام تركية"},
+      {"id":"asian","name":"أفلام آسيوية"},
+      {"id":"indian","name":"أفلام هندية"},
+      {"id":"dubbed","name":"أفلام مدبلجة"},
+      {"id":"classic","name":"أفلام كلاسيكية"},
+      {"id":"netflix","name":"أفلام نتفليكس"}
+    ],
+    "series": [
+      {"id":"all","name":"الكل"},
+      {"id":"foreign","name":"مسلسلات أجنبية"},
+      {"id":"arabic","name":"مسلسلات عربية"},
+      {"id":"turkish","name":"مسلسلات تركية"},
+      {"id":"korean","name":"مسلسلات كورية"},
+      {"id":"egyptian","name":"مسلسلات مصريه"},
+      {"id":"indian","name":"مسلسلات هندية"},
+      {"id":"dubbed","name":"مسلسلات مدبلجة"},
+      {"id":"cartoon","name":"مسلسلات كرتون"},
+      {"id":"netflix","name":"مسلسلات نتفليكس"}
+    ],
+    "ramadan": [
+      {"id":"all","name":"الكل"},
+      {"id":"2026","name":"رمضان 2026"},
+      {"id":"2025","name":"رمضان 2025"},
+      {"id":"2024","name":"رمضان 2024"},
+      {"id":"2023","name":"رمضان 2023"},
+      {"id":"2022","name":"رمضان 2022"},
+      {"id":"2021","name":"رمضان 2021"},
+      {"id":"2020","name":"رمضان 2020"},
+      {"id":"2019","name":"رمضان 2019"}
+    ],
+    "anime": [
+      {"id":"all","name":"الكل"},
+      {"id":"movies","name":"أفلام أنيميشن"},
+      {"id":"series","name":"مسلسلات كرتون"}
+    ],
+    "others": [
+      {"id":"all","name":"الكل"},
+      {"id":"wwe","name":"مصارعة"},
+      {"id":"songs","name":"أغاني عربية"},
+      {"id":"tv","name":"برامج تلفزيونية"},
+      {"id":"plays","name":"مسرحيات عربية"}
+    ]
+  },
+
+  "genres": [
+    "الكل","أكشن","مغامرات","كوميدي","دراما","رعب","خيال علمي",
+    "غموض","إثارة","جريمة","تاريخي","حربي","رياضي","موسيقي",
+    "فنتازيا","خارق للعادة","عائلي","أطفال","سيرة ذاتية","بوليسي"
+  ],
+
+  "types": ["movie", "series"],
+
+  "catalogs": [
+    {"id":"movies",  "name":"الأفلام",    "type":"movie"},
+    {"id":"series",  "name":"المسلسلات",   "type":"series"},
+    {"id":"ramadan", "name":"رمضان",      "type":"series"},
+    {"id":"anime",   "name":"انمي",       "type":"movie"},
+    {"id":"others",  "name":"اخري",       "type":"movie"},
+    {"id":"browse",  "name":"تصفح الموقع", "type":"movie"},
+    {"id":"recently","name":"المضاف حديثا","type":"movie"},
+    {"id":"trending","name":"الأكثر مشاهدة","type":"movie"}
+  ],
+
+  "providers": [
+    "mp4upload","dailymotion","okru","videa","voe",
+    "uqload","dsvplay","vidmoly","krakenfiles",
+    "lulustream","doodstream","mixdrop","streamwish",
+    "rubyvidhub","megamax","luluvid","vidaraa",
+    "reviewrate","bysezejataos"
+  ]
+}

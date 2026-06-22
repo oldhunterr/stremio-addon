@@ -1,0 +1,31 @@
+{
+  "id": "animelek",
+  "name": "AnimeLek",
+  "baseUrl": "https://animelek.top",
+  "enabled": true,
+  "needsFlareSolverr": false,
+  "logo": "https://animelek.top/favicon.ico",
+  "searchEnabled": true,
+  "extraSupported": ["genre", "type"],
+  "genres": [
+    "أكشن","مغامرات","كوميدي","دراما","خيال علمي","سحر","رعب","رومانسي",
+    "مدرسي","غموض","نفسي","خارق للعادة","قوى خارقة","شونين","سينين","شوجو",
+    "جوسي","شريحة من الحياة","تاريخي","ساموراي","فنون قتالية","ميكا",
+    "فضائي","رياضي","موسيقي","شياطين","مصاصي دماء","حريم","العاب",
+    "اثارة","بوليسي","سيارات","إيتشي","شوجو آي","شونين اي","يوري","ياوي",
+    "هنتاي","جنون","أطفال","محاكاة ساخرة"
+  ],
+  "types": ["TV", "فيلم", "OVA", "ONA", "Special"],
+  "catalogs": [
+    { "id": "all", "name": "الكل", "type": "series" },
+    { "id": "film", "name": "أفلام", "type": "series" },
+    { "id": "airing", "name": "يعرض الآن", "type": "series" }
+  ],
+  "providers": [
+    "mp4upload", "dailymotion", "okru", "videa", "larhu",
+    "rubyvidhub", "voe", "share4max", "uqload", "dsvplay", "mega",
+    "megamax", "googledrive", "vidblue", "vadbam",
+    "vidmoly", "sendvid", "sibnet", "turbovidhls", "hgcloud",
+    "krakenfiles", "lulustream", "earnvids", "doodstream", "mixdrop", "veev", "streamwish"
+  ]
+}
