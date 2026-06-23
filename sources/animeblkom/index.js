@@ -19,6 +19,7 @@ const SITE_BASE_URL      = BASE_URL;
 const NEEDS_FLARESOLVERR = true;
 const SEARCH_ENABLED     = true;
 const PROXY_IMAGES       = true;
+const PROXY_STREAMS      = false;
 
 // ─── Filters ──────────────────────────────────────────────────────────────────
 const GENRES = [
@@ -163,7 +164,7 @@ async function getStreams(encodedId) {
     const u = rawUrl.startsWith('http') ? rawUrl : resolve(rawUrl);
     if (!u || seen.has(u) || u.match(/\.(jpg|png|gif|css|js)(\?|$)/i)) return;
     seen.add(u);
-    streams.push({ url: u, label, isEmbed });
+    streams.push({ url: u, label, isEmbed, providerId: isEmbed ? null : 'blkom' });
     console.log(`  [Stream] ${isEmbed ? 'embed' : 'direct'} "${label}" -> ${u}`);
   }
 
@@ -236,7 +237,7 @@ async function getStreams(encodedId) {
 
 module.exports = {
   SITE_ID, SITE_NAME, SITE_LOGO, SITE_BASE_URL,
-  NEEDS_FLARESOLVERR, SEARCH_ENABLED, PROXY_IMAGES,
+  NEEDS_FLARESOLVERR, SEARCH_ENABLED, PROXY_IMAGES, PROXY_STREAMS,
   CATALOGS, EXTRA_SUPPORTED, GENRES,
   getCatalog, search, getMeta, getStreams,
 };

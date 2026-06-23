@@ -15,6 +15,7 @@ const SITE_BASE_URL      = BASE_URL;
 const NEEDS_FLARESOLVERR = false;
 const SEARCH_ENABLED     = true;
 const PROXY_IMAGES       = false;
+const PROXY_STREAMS      = false;
 
 // ─── Filters ──────────────────────────────────────────────────────────────────
 const EXTRA_SUPPORTED = [];
@@ -87,7 +88,8 @@ function parseCards($, label = '') {
 async function getCatalog(catalogId, page = 1, extra = {}) {
   // Genre filter overrides catalog selection
   const resolvedCatId = extra.genre ? (GENRE_CATALOG_MAP[extra.genre] || catalogId) : catalogId;
-  const cat = CATALOGS.find(c => c.id === resolvedCatId) || CATALOGS[0];
+  const cat = CATALOGS.find(c => c.id === resolvedCatId);
+  if (!cat) return { items: [], hasNextPage: false };
 
   // Site pagination: page 2 = offset 50 in URL
   const url = page <= 1 ? cat.url : cat.url.replace(/\.html$/, '') + '/50.html';
@@ -218,7 +220,7 @@ async function getStreams(encodedId) {
 
 module.exports = {
   SITE_ID, SITE_NAME, SITE_LOGO, SITE_BASE_URL,
-  NEEDS_FLARESOLVERR, SEARCH_ENABLED, PROXY_IMAGES,
+  NEEDS_FLARESOLVERR, SEARCH_ENABLED, PROXY_IMAGES, PROXY_STREAMS,
   CATALOGS, EXTRA_SUPPORTED, GENRES,
   getCatalog, search, getMeta, getStreams,
 };

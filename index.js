@@ -9,18 +9,21 @@
  *  - Batch resolve with concurrency via p-limit
  */
 const express = require('express');
+const axios   = require('axios');
 const cors    = require('cors');
-const { destroyFSSession, fetchImage } = require('./lib/fetch');
+const { fetchImage } = require('./lib/fetch');
 const { loadSources }    = require('./lib/registry');
 const { buildManifest }  = require('./manifest');
-const { verifyUrl, isStreamLike, filterStreams } = require('./lib/verifier');
+const { verifyUrl, filterStreams } = require('./lib/verifier');
 
 const app       = express();
 const PORT      = process.env.PORT || 7100;
 const ADDON_ID  = process.env.ADDON_ID || 'com.streamforge.resolver';
 const ADDON_URL = (process.env.ADDON_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
-const RESOLVER  = (process.env.RESOLVER_URL || 'http://localhost:3000').replace(/\/$/, '');
-const PROXY_URL = (process.env.PROXY_URL || RESOLVER).replace(/\/$/, '');  // url-resolver-v2
+const RESOLVER  = (process.env.RESOLVER_URL || 'http://localhost:3000').replace(/\/+$/, '').trim();
+
+// Use request host for image URLs when ADDON_URL isn't explicitly configured.
+function imgBase(req) { return process.env.ADDON_URL || `${req.protocol}://${req.get('host')}`; }
 
 // ─── Load sources (no providers — delegated to resolver) ──────────────────────
 const baseDir = __dirname;
@@ -100,7 +103,7 @@ app.get(['/catalog/:type/:id.json', '/catalog/:type/:id/:extra.json', '/catalog/
     const metas = items.map(item => {
       let poster = item.thumb || '';
       if (poster && source.module.PROXY_IMAGES) {
-        poster = `${ADDON_URL}/img/${Buffer.from(poster).toString('base64url')}`;
+        poster = `${imgBase(req)}/img/${Buffer.from(poster).toString('base64url')}`;
       }
       return {
         id:          `${ADDON_ID}:${sourceId}:${item.id}`,
@@ -138,10 +141,10 @@ app.get('/meta/:type/:id.json', async (req, res) => {
     let background = data.thumb || '';
     if (source.module.PROXY_IMAGES) {
       if (poster) {
-        poster = `${ADDON_URL}/img/${Buffer.from(poster).toString('base64url')}`;
+        poster = `${imgBase(req)}/img/${Buffer.from(poster).toString('base64url')}`;
       }
       if (background) {
-        background = `${ADDON_URL}/img/${Buffer.from(background).toString('base64url')}`;
+        background = `${imgBase(req)}/img/${Buffer.from(background).toString('base64url')}`;
       }
     }
 
@@ -172,7 +175,7 @@ app.get('/meta/:type/:id.json', async (req, res) => {
   }
 });
 
-// ─── Stream (returns proxy URLs — resolves on-demand when user clicks play) ────
+// ─── Stream — routes through resolver for proxy sources, direct for others ────
 app.get('/stream/:type/:id.json', async (req, res) => {
   try {
     const { sourceId, localId } = parseAddonId(req.params.id);
@@ -184,9 +187,7 @@ app.get('/stream/:type/:id.json', async (req, res) => {
     const rawStreams = await source.module.getStreams(localId);
     if (!rawStreams || rawStreams.length === 0) return res.json({ streams: [] });
 
-    // Streams that need upfront resolution (multi-mirror providers)
-    const multiMirrorProviders = ['megamax', 'share4max'];
-
+    const PROXY_STREAMS = source.module.PROXY_STREAMS;
     const streams = [];
 
     for (let i = 0; i < rawStreams.length; i++) {
@@ -198,78 +199,66 @@ app.get('/stream/:type/:id.json', async (req, res) => {
         ...(s.subtitles?.length ? { subtitles: s.subtitles } : {}),
       };
 
-      // Embed-only or no provider → externalUrl (opens in browser)
+      // No providerId or marked as embed → externalUrl (opens in Stremio browser)
       if (!s.providerId || s.isEmbed) {
         streams.push({ ...base, externalUrl: s.url });
         continue;
       }
 
-      // Multi-mirror provider: use /extract to get all mirrors with proxy URLs
-      if (multiMirrorProviders.includes(s.providerId)) {
-        console.log(`[Stream] Expanding ${s.providerId}: ${s.url.substring(0,60)}`);
-        try {
-          const enc = Buffer.from(s.url).toString('base64');
-          const resp = await require('axios').get(
-            `${RESOLVER}/extract`,
-            { params: { url: enc }, timeout: 60000 }
-          );
-          const candidates = resp.data?.candidates || [];
-          if (candidates.length > 0) {
-            console.log(`[Stream] → ${candidates.length} mirrors from ${s.providerId}`);
-            for (const c of candidates) {
-              const mirrorName = c.source.split('/').pop() || 'mirror';
-              streams.push({
-                ...base,
-                title: `${label} — ${mirrorName}`,
-                url: c.proxyUrl,
-                behaviorHints: { notWebReady: false },
-              });
+      if (PROXY_STREAMS) {
+        // ── Proxy path: route through resolver ────────────────────────────
+
+        // Multi-mirror (share4max / megamax): /extract returns list of proxyUrls
+        if (s.providerId === 'share4max' || s.providerId === 'megamax') {
+          console.log(`[Stream] Extracting ${s.providerId}: ${s.url.substring(0,60)}`);
+          try {
+            const enc = Buffer.from(s.url).toString('base64');
+            const resp = await axios.get(`${RESOLVER}/extract`, { params: { url: enc }, timeout: 60000 });
+            const candidates = resp.data?.candidates || [];
+            if (candidates.length > 0) {
+              console.log(`[Stream] → ${candidates.length} mirrors from ${s.providerId}`);
+              for (const c of candidates) {
+                // source format: "share4max/{quality}/{provider}" e.g. "share4max/1080p (source)/krakenfiles"
+                const parts = c.source.split('/');
+                const providerName = parts.pop() || 'mirror';
+                const quality = (parts.pop() || '').replace(/\s*\(.*?\)\s*/g, '').trim();
+                const streamLabel = quality ? `${providerName} — ${quality}` : providerName;
+                streams.push({
+                  ...base,
+                  title: streamLabel,
+                  url: c.proxyUrl,
+                  behaviorHints: { notWebReady: false },
+                });
+              }
+              continue;
             }
-            continue;
+            console.log(`[Stream] ${s.providerId} returned empty candidates`);
+          } catch (err) {
+            console.log(`[Stream] ${s.providerId} /extract failed: ${err.message}`);
           }
-          console.log(`[Stream] ${s.providerId} returned empty candidates`);
-        } catch (err) {
-          console.log(`[Stream] ${s.providerId} /extract failed: ${err.message}`);
+          // Fall through to /stream URL if extract fails
         }
-      }
 
-      // Pick method based on provider type
-      const knownProviders = ['mp4upload','dailymotion','okru','videa','larhu',
-        'rubyvidhub','voe','uqload','dsvplay','streamwish','krakenfiles',
-          'lulustream','doodstream','mixdrop','mega'];
-      
-        let method;
-        if (!knownProviders.includes(s.providerId)) {
-          method = 'auto';
+        // Standard providers: construct resolver proxy URL (Stremio calls it on play)
+        const enc = Buffer.from(s.url).toString('base64');
+        const proxyUrl = `${RESOLVER}/stream?url=${encodeURIComponent(enc)}`;
+        streams.push({
+          ...base,
+          url: proxyUrl,
+          behaviorHints: { notWebReady: false },
+        });
+
       } else {
-        method = 'auto';  // proxy/auto calls resolve() with retries
-      }
-
-      // On-demand proxy URL — resolve via /resolve first to get raw CDN URL
-      try {
-        console.log(`[Stream] Resolving ${s.providerId}: ${s.url.substring(0,60)}`);
-        const resolveResp = await require('axios').get(
-          `${RESOLVER}/resolve`,
-          { params: { url: s.url }, timeout: 45000 }
-        );
-        const resolveData = resolveResp.data?.data || {};
-        if (resolveData.success && resolveData.results?.length > 0) {
-          const rawCdnUrl = resolveData.results[0].url;
-          console.log(`[Stream] → resolved: ${rawCdnUrl.substring(0, 80)}`);
-          streams.push({
-            ...base,
-            url: `${PROXY_URL}/proxy?url=${encodeURIComponent(rawCdnUrl)}`,
-            behaviorHints: { notWebReady: false },
-          });
-        } else {
-          console.log(`[Stream] ${s.providerId} resolve returned empty`);
-        }
-      } catch (err) {
-        console.log(`[Stream] ${s.providerId} resolve failed: ${err.message}`);
+        // ── Direct path: pass scraper URL straight to Stremio ────────────
+        streams.push({
+          ...base,
+          url: s.url,
+          behaviorHints: { notWebReady: false },
+        });
       }
     }
 
-    console.log(`[Stream] → ${streams.length} streams (${streams.filter(s => s.url).length} proxied)`);
+    console.log(`[Stream] → ${streams.length} streams total`);
     res.json({ streams });
   } catch (err) {
     console.error('[Stream] Error:', err.message);
@@ -289,7 +278,7 @@ app.get('/proxy', async (req, res) => {
   // Forward to url-resolver-v2's proxy endpoint
   const proxyUrl = `${RESOLVER}/proxy?url=${encodeURIComponent(targetUrl)}&method=${method}`;
   try {
-    const resp = await require('axios').get(proxyUrl, {
+    const resp = await axios.get(proxyUrl, {
       responseType: 'stream',
       timeout: 60000,
       validateStatus: () => true,

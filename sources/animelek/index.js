@@ -46,6 +46,7 @@ const SITE_BASE_URL      = BASE_URL;
 const NEEDS_FLARESOLVERR = false;
 const SEARCH_ENABLED     = true;
 const PROXY_IMAGES       = false;
+const PROXY_STREAMS      = true;
 
 const EXTRA_SUPPORTED = ['genre', 'type'];
 
@@ -321,7 +322,8 @@ function parseCards($, label = '') {
  * @returns {{ items: Array, hasNextPage: boolean }}
  */
 async function getCatalog(catalogId, page = 1, extra = {}) {
-  const cat   = CATALOGS.find((c) => c.id === catalogId) || CATALOGS[0];
+  const cat   = CATALOGS.find((c) => c.id === catalogId);
+  if (!cat) return { items: [], hasNextPage: false };
   const url   = buildUrl(cat.url, page, extra.genre, extra.type);
   const html  = await fetchPage(url, BASE_URL, plain());
 
@@ -341,7 +343,7 @@ async function getCatalog(catalogId, page = 1, extra = {}) {
  * @returns {Array<{id: string, title: string, thumb: string, url: string}>}
  */
 async function search(query) {
-  const url  = `${BASE_URL}/search/?s=${encodeURIComponent(query)}`;
+  const url  = `${BASE_URL}/?s=${encodeURIComponent(query)}`;
   const html = await fetchPage(url, BASE_URL, plain());
 
   if (!html) return [];
@@ -553,7 +555,7 @@ module.exports = {
   SITE_BASE_URL,
   NEEDS_FLARESOLVERR,
   SEARCH_ENABLED,
-  PROXY_IMAGES,
+  PROXY_IMAGES, PROXY_STREAMS,
 
   // Constants for catalog/filter definitions
   CATALOGS,

@@ -25,6 +25,7 @@ const SITE_BASE_URL      = BASE_URL;
 const NEEDS_FLARESOLVERR = false;
 const SEARCH_ENABLED     = true;
 const PROXY_IMAGES       = false;
+const PROXY_STREAMS      = true;
 
 const EXTRA_SUPPORTED = ['category', 'genre', 'type'];
 const TYPES = ['movie', 'series'];
@@ -34,9 +35,9 @@ const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 // Cookie store — shared between page fetches and AJAX calls
 const cookieStore = {};
 
-// CSRF token — extracted dynamically from the page (replaces hardcoded f9db98127e / c9bd0311f3)
-// Falls back to known working token when dynamic extraction fails (site blocks browsers)
-let csrfToken = 'e5a2dc73bf';
+// CSRF token — extracted dynamically from the site's page HTML.
+// Refreshed lazily on first request that needs it.
+let csrfToken = '';
 
 /**
  * Visit the base URL and extract a fresh CSRF token from the page HTML.
@@ -45,7 +46,7 @@ let csrfToken = 'e5a2dc73bf';
 async function refreshCsrfToken() {
   try {
     console.log('[ArabSeed] Extracting CSRF token from base page...');
-    const html = await fetchPage(BASE_URL + '/home7/', BASE_URL, plain({ noCache: true }));
+    const html = await fetchPage(BASE_URL + '/series/', BASE_URL, plain({ noCache: true }));
     if (!html) {
       console.warn('[ArabSeed] Failed to fetch base page for CSRF token');
       return;
@@ -1009,6 +1010,10 @@ async function getStreams(encodedId) {
     currentQuality = activeQuality.attr('data-quality') || 'Auto';
   }
 
+  // Find all available quality tabs and the post_id for quality switching
+  const qualityTabs = $(SELECTORS.watchQuality).toArray();
+  const postId = $(SELECTORS.watchDataLinks).first().attr('data-post') || '';
+
   // ─── Parse ALL server/stream links from <li data-link> elements ──────────
   // Each <li data-link="..."> contains an embed/proxy URL, plus the server name
   // data-link URLs may be:
@@ -1029,8 +1034,8 @@ async function getStreams(encodedId) {
 
     const providerId = getProviderId(decodedUrl);
 
-    // Hierarchical resolution strategy
-    let resolvedQuality = $el.attr('data-quality') || $el.attr('quality');
+    // Check data-qu attribute first (direct quality indicator on server elements)
+    let resolvedQuality = $el.attr('data-qu') || $el.attr('data-quality') || $el.attr('quality');
 
     if (!resolvedQuality) {
       $el.parents().each((_, parent) => {
@@ -1066,9 +1071,89 @@ async function getStreams(encodedId) {
       });
     }
 
+    // Format quality: add "p" suffix if numeric
     resolvedQuality = resolvedQuality || currentQuality;
+    if (/^\d{3,4}$/.test(resolvedQuality)) resolvedQuality += 'p';
 
     addStream(decodedUrl, name, resolvedQuality, providerId);
+  }
+
+  // ─── Fetch all qualities from API (each quality has multiple servers) ─────
+  // The page only renders the default quality's servers with data-link.
+  // For all qualities, we call get__quality__servers to list servers,
+  // then get__watch__server to get each server's embed URL.
+  if (postId && qualityTabs.length > 0) {
+    for (const tab of qualityTabs) {
+      const $tab = $(tab);
+      const qVal = $tab.attr('data-quality') || '';
+      if (!qVal) continue;
+
+      // Skip the default quality if we already got data-links from the page
+      const isDefault = String(qVal) === String(currentQuality);
+      if (isDefault && streams.length > 0) continue;
+
+      console.log(`[ArabSeed] Fetching quality ${qVal}p servers`);
+      try {
+        const qForm = new URLSearchParams({
+          post_id: postId,
+          quality: qVal,
+          csrf_token: csrfToken || '',
+        });
+        const qResp = await ajaxClient.post(`${BASE_URL}/get__quality__servers/`, qForm.toString(), {
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        });
+        const qData = qResp.data;
+        if (qData?.type !== 'success') continue;
+
+        // Parse the server list HTML for data-server indices
+        const $q = cheerio.load(qData.html || '');
+        const serverEls = $q('li[data-server]').toArray();
+        const serverNames = [];
+        const serverIndices = [];
+        for (const el of serverEls) {
+          const $el = $q(el);
+          const idx = $el.attr('data-server');
+          const name = $el.find('span').text().trim() || `سيرفر ${idx}`;
+          if (idx !== undefined && !serverIndices.includes(idx)) {
+            serverIndices.push(idx);
+            serverNames.push(name);
+          }
+        }
+
+        // If no server elements in html, fallback to the top-level server field
+        if (serverIndices.length === 0 && qData.server) {
+          const providerId = getProviderId(qData.server);
+          addStream(qData.server, 'سيرفر عرب سيد', `${qVal}p`, providerId);
+          continue;
+        }
+
+        // Fetch each server's embed URL via get__watch__server
+        for (let si = 0; si < serverIndices.length; si++) {
+          const idx = serverIndices[si];
+          const name = serverNames[si] || `سيرفر ${idx}`;
+          try {
+            const wForm = new URLSearchParams({
+              post_id: postId,
+              quality: qVal,
+              server: idx,
+              csrf_token: csrfToken || '',
+            });
+            const wResp = await ajaxClient.post(`${BASE_URL}/get__watch__server/`, wForm.toString(), {
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            });
+            const wData = wResp.data;
+            if (wData?.type === 'success' && wData.server) {
+              const providerId = getProviderId(wData.server);
+              addStream(wData.server, name, `${qVal}p`, providerId);
+            }
+          } catch (err) {
+            console.log(`[ArabSeed] server ${idx} fetch failed: ${err.message}`);
+          }
+        }
+      } catch (err) {
+        console.log(`[ArabSeed] quality ${qVal}p fetch failed: ${err.message}`);
+      }
+    }
   }
 
   // ─── Fallback: iframe on the page (when data-link elements are absent) ───
@@ -1104,7 +1189,7 @@ module.exports = {
   SITE_BASE_URL,
   NEEDS_FLARESOLVERR,
   SEARCH_ENABLED,
-  PROXY_IMAGES,
+  PROXY_IMAGES, PROXY_STREAMS,
   CATALOGS: [], // Catalogs are defined in meta.json
   EXTRA_SUPPORTED,
   GENRES: Object.keys(GENRE_URLS),

@@ -1,7 +1,7 @@
 /**
  * Scraper: Kawaii Anime
  * URL: https://www.kawaii-anime.com
- * CF: NO — uses AniList GraphQL API + HiAnime API, no scraping needed
+ * CF: NO — uses AniList GraphQL API + kawaii-anime internal APIs
  */
 const { makeId, idToUrl } = require('../../lib/fetch');
 
@@ -14,6 +14,7 @@ const SITE_BASE_URL      = BASE_URL;
 const NEEDS_FLARESOLVERR = false;
 const SEARCH_ENABLED     = true;
 const PROXY_IMAGES       = false;
+const PROXY_STREAMS      = true;
 
 // ─── Filters ──────────────────────────────────────────────────────────────────
 const EXTRA_SUPPORTED = ['genre', 'type'];
@@ -90,34 +91,6 @@ function mediaToItem(media) {
   };
 }
 
-// ─── Supabase slug lookup ─────────────────────────────────────────────────────
-const SUPABASE_URL    = 'https://axfutjtkvqjdhooxrwjn.supabase.co';
-const SUPABASE_APIKEY = 'sb_publishable_x_O6uBy2QHZTg5r8D7H3kQ_2cXuZsEe';
-
-async function getHiSlug(anilistId) {
-  try {
-    const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/anime_mapping?select=*&anilist_id=eq.${anilistId}`,
-      {
-        headers: {
-          'accept':         'application/vnd.pgrst.object+json',
-          'accept-profile': 'public',
-          'apikey':         SUPABASE_APIKEY,
-          'authorization':  `Bearer ${SUPABASE_APIKEY}`,
-          'origin':         BASE_URL,
-          'referer':        `${BASE_URL}/`,
-        },
-      }
-    );
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data?.hianime_id || null;
-  } catch (err) {
-    console.warn('[KawaiiAnime] getHiSlug failed:', err.message);
-    return null;
-  }
-}
-
 // ─── ID helpers ───────────────────────────────────────────────────────────────
 function parseAnilistId(encodedId) {
   // Accepts both  "anilist:12345"  and  base64url-encoded watch URLs
@@ -134,6 +107,7 @@ function parseAnilistId(encodedId) {
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 async function getCatalog(catalogId, page = 1, extra = {}) {
+  if (!CATALOGS.find(c => c.id === catalogId)) return { items: [], hasNextPage: false };
   const sort  = CATALOGS.find(c => c.id === catalogId)?.id || 'TRENDING_DESC';
   const genre = extra.genre || null;
   const type  = extra.type  || null;
@@ -197,37 +171,25 @@ async function getMeta(encodedId) {
   const description = media.description || '';
   const genres      = media.genres || [];
 
-  // 2. Resolve HiAnime slug (Supabase -> title guess)
-  let hiSlug = await getHiSlug(anilistId);
-  if (!hiSlug) {
-    const romaji  = media.title?.romaji || media.title?.english || '';
-    hiSlug = romaji.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || null;
-    if (hiSlug) console.log(`[KawaiiAnime] Guessed hiSlug: ${hiSlug}`);
-  }
-
-  // 3. Fetch episode list from HiAnime
+  // 2. Fetch episode list from cached-episodes API (replaces old HiAnime)
   let episodeLinks = [];
-  if (hiSlug) {
-    try {
-      const epData = await apiGet('/api/hianime', {
-        path: `/api/v2/hianime/anime/${hiSlug}/episodes`,
-      });
-      const episodes = epData?.data?.episodes || [];
-      console.log(`[KawaiiAnime] ${episodes.length} episodes from HiAnime`);
+  try {
+    const epData = await apiGet('/api/cached-episodes', { anilistId });
+    const episodes = epData?.eps || [];
+    console.log(`[KawaiiAnime] ${episodes.length} episodes from cached-episodes`);
 
-      episodeLinks = episodes.map(ep => {
-        const epUrl = `${BASE_URL}/watch/${anilistId}?ep=${encodeURIComponent(ep.episodeId)}&num=${ep.number}&hi=${hiSlug}`;
-        return {
-          id:        makeId(epUrl, BASE_URL),
-          href:      epUrl,
-          title:     ep.title ? (ep.isFiller ? `🔶 ${ep.title}` : ep.title) : `الحلقة ${ep.number}`,
-          epNum:     ep.number,
-          seasonNum: 1,
-        };
-      });
-    } catch (err) {
-      console.warn('[KawaiiAnime] Episode fetch failed:', err.message);
-    }
+    episodeLinks = episodes.map(epNum => {
+      const epUrl = `${BASE_URL}/watch/${anilistId}?num=${epNum}`;
+      return {
+        id:        makeId(epUrl, BASE_URL),
+        href:      epUrl,
+        title:     `الحلقة ${epNum}`,
+        epNum,
+        seasonNum: 1,
+      };
+    });
+  } catch (err) {
+    console.warn('[KawaiiAnime] Episode fetch failed:', err.message);
   }
 
   return { title, thumb, description, genres, episodeLinks };
@@ -238,12 +200,10 @@ async function getStreams(encodedId) {
   const url    = idToUrl(encodedId, BASE_URL);
   const params = new URL(url).searchParams;
 
-  const anilistId   = url.match(/\/watch\/(\d+)/)?.[1];
-  const epNum       = params.get('num');
-  const hiEpisodeId = decodeURIComponent(params.get('ep') || '');
-  const hiSlug      = params.get('hi') || '';
+  const anilistId = url.match(/\/watch\/(\d+)/)?.[1];
+  const epNum     = params.get('num');
 
-  console.log(`[KawaiiAnime] anilistId=${anilistId} epNum=${epNum} hiEpisodeId=${hiEpisodeId}`);
+  console.log(`[KawaiiAnime] anilistId=${anilistId} epNum=${epNum}`);
   if (!anilistId || !epNum) return [];
 
   const streams  = [];
@@ -261,27 +221,21 @@ async function getStreams(encodedId) {
     console.warn('[KawaiiAnime] Cache check failed:', err.message);
   }
 
-  // ── 2. HiAnime HLS ───────────────────────────────────────────────────────
+  // ── 2. Miruro HLS (replaces old HiAnime) ────────────────────────────────
   try {
-    let hls = null;
-    for (const server of ['hd-1', 'hd-2']) {
-      const path = `/api/v2/hianime/episode/sources?animeEpisodeId=${encodeURIComponent(hiEpisodeId)}&server=${server}&category=sub`;
-      const res  = await apiGet('/api/hianime', { path });
-      if (res?.data?.sources?.length) { hls = res; break; }
-    }
-
-    const src     = hls?.data?.sources?.find(s => s.isM3U8) || hls?.data?.sources?.[0];
-    const referer = hls?.data?.headers?.Referer || hls?.data?.headers?.referer || 'https://megacloud.blog/';
+    const miruro = await apiGet('/api/miruro', { anilistId, ep: epNum });
+    const src     = miruro?.sources?.find(s => s.isM3U8) || miruro?.sources?.[0];
+    const referer = miruro?.headers?.Referer || miruro?.headers?.referer || BASE_URL;
 
     if (src?.url) {
       const proxied   = `${BASE_URL}/api/proxy?url=${encodeURIComponent(src.url)}&referer=${encodeURIComponent(referer)}`;
-      const subtitles = (hls?.data?.tracks || []).filter(t => t.url)
+      const subtitles = (miruro?.tracks || []).filter(t => t.url)
         .map((t, i) => ({ id: String(i), url: t.url, lang: t.lang || 'English' }));
       streams.push({ url: proxied, label: '📡 HLS Stream', isEmbed: false, subtitles });
-      console.log(`[KawaiiAnime] Found HLS stream`);
+      console.log(`[KawaiiAnime] Found Miruro HLS stream`);
     }
   } catch (err) {
-    console.warn('[KawaiiAnime] HLS fetch failed:', err.message);
+    console.warn('[KawaiiAnime] Miruro fetch failed:', err.message);
   }
 
   console.log(`[KawaiiAnime] ${streams.length} stream(s) total`);
@@ -290,7 +244,7 @@ async function getStreams(encodedId) {
 
 module.exports = {
   SITE_ID, SITE_NAME, SITE_LOGO, SITE_BASE_URL,
-  NEEDS_FLARESOLVERR, SEARCH_ENABLED, PROXY_IMAGES,
+  NEEDS_FLARESOLVERR, SEARCH_ENABLED, PROXY_IMAGES, PROXY_STREAMS,
   CATALOGS, EXTRA_SUPPORTED, GENRES, TYPES,
   getCatalog, search, getMeta, getStreams,
 };

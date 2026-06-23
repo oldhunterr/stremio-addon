@@ -25,6 +25,7 @@ const SITE_BASE_URL      = BASE_URL;
 const NEEDS_FLARESOLVERR = false;
 const SEARCH_ENABLED     = true;
 const PROXY_IMAGES       = false;
+const PROXY_STREAMS      = true;
 
 const EXTRA_SUPPORTED = [];
 
@@ -56,6 +57,8 @@ const SELECTORS = {
   metaOgTitle:   'meta[property="og:title"]',
   metaDesc:      '.entry-content p, .desc p, .description p',
   metaOgDesc:    'meta[property="og:description"]',
+  metaPoster:    '.SingleContent .poster, .poster',
+  metaGenres:    '.genres a[rel="tag"], span.genre, .genred a, a[rel="tag"]',
   episodeList:   '.EpisodesList a',
   /** Stream/episode page */
   serverList:    'ul#watch li[data-watch]',
@@ -147,6 +150,7 @@ function parseCards($, label = '') {
  * @returns {{ items: Array, hasNextPage: boolean }}
  */
 async function getCatalog(catalogId, page = 1, extra = {}) {
+  if (!CATALOGS.find(c => c.id === catalogId)) return { items: [], hasNextPage: false };
   const url  = `${BASE_URL}/series/page/${page}/`;
   const html = await fetchPage(url, BASE_URL, plain());
 
@@ -199,16 +203,33 @@ async function getMeta(encodedId) {
     || ''
   );
 
-  const thumb = (
-    resolve($(SELECTORS.metaOgImage).attr('content') || '')
-    || ''
-  );
+  // Try to extract actual poster from page element first (og:image may be
+  // a generic placeholder like DFHSFDHSF.png)
+  let thumb = '';
+  const $metaPoster = $(SELECTORS.metaPoster).first();
+  const posterStyle = $metaPoster.attr('data-style') || $metaPoster.attr('style') || '';
+  if (posterStyle) {
+    thumb = resolve(extractBgImageUrl(posterStyle));
+  }
+  if (!thumb || thumb.includes('DFHSFDHSF')) {
+    const ogImg = $(SELECTORS.metaOgImage).attr('content') || '';
+    if (ogImg && !ogImg.includes('DFHSFDHSF')) {
+      thumb = resolve(ogImg);
+    }
+  }
 
   const description = (
     $(SELECTORS.metaDesc).first().text().trim()
     || $(SELECTORS.metaOgDesc).attr('content')
     || ''
   );
+
+  // ─── Extract genres ──────────────────────────────────────────────────────
+  const genres = [];
+  $(SELECTORS.metaGenres).each((_, el) => {
+    const g = $(el).text().trim();
+    if (g) genres.push(g);
+  });
 
   // ─── Extract episode list ────────────────────────────────────────────────
   // RistoAnime uses .EpisodesList a for episode links with Arabic labels.
@@ -233,7 +254,7 @@ async function getMeta(encodedId) {
     });
   });
 
-  return { title, thumb, description, genres: [], episodeLinks };
+  return { title, thumb, description, genres, episodeLinks };
 }
 
 /**
@@ -344,7 +365,7 @@ module.exports = {
   SITE_BASE_URL,
   NEEDS_FLARESOLVERR,
   SEARCH_ENABLED,
-  PROXY_IMAGES,
+  PROXY_IMAGES, PROXY_STREAMS,
 
   // Constants for catalog/filter definitions
   CATALOGS,
