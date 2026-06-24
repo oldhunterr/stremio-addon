@@ -1,4 +1,5 @@
 const cheerio = require('cheerio');
+const axios   = require('axios');
 const { fetchPage, makeId, idToUrl, resolveUrl } = require('../../lib/fetch');
 
 const BASE_URL = 'https://anime3rb.com';
@@ -221,51 +222,42 @@ async function getStreams(encodedId) {
 
   console.log(`[Anime3rb] getStreams ${episodeUrl}`);
 
-  const streams = [];
-  const seen = new Set();
+  const resolverUrl = process.env.RESOLVER_URL || 'http://localhost:3000';
+  const enc = Buffer.from(episodeUrl).toString('base64');
 
-  // Fetch the episode page to discover available qualities from download labels
-  const html = await fetchPage(episodeUrl, BASE_URL, plain({ noCache: true }));
-  if (!html) return [];
-
-  const $ = cheerio.load(html);
-
-  // Extract quality labels from the download section
-  const qualities = [];
-  $('a[href*="/download/"]').each((_, el) => {
-    const label = $(el).parent().find('label').first().text().trim()
-      || $(el).closest('[class*="flex"]').find('label').first().text().trim()
-      || '';
-    if (!label) return;
-
-    const qMatch = label.match(/\[(.+?)\]/);
-    if (!qMatch) return;
-    qualities.push(qMatch[1]);
-  });
-
-  // Deduplicate and sort qualities
-  const unique = [...new Set(qualities)];
-  const sortOrder = ['4K', '1080p HEVC', '1080p', '720p', '480p', '360p'];
-  unique.sort((a, b) => sortOrder.indexOf(a) - sortOrder.indexOf(b));
-
-  // If no qualities found, provide a default
-  const qualityList = unique.length > 0 ? unique : ['Auto'];
-
-  for (const q of qualityList) {
-    if (seen.has(q)) continue;
-    seen.add(q);
-
-    streams.push({
-      url:    episodeUrl,
-      label:  `✅ ${q}`,
-      quality: q,
-      isEmbed: false,
-      providerId: 'anime3rb',
+  try {
+    const resp = await axios.get(`${resolverUrl}/extract`, {
+      params: { url: enc, quality: 'all' },
+      timeout: 30000,
+      validateStatus: () => true,
     });
-  }
 
-  console.log(`[Anime3rb] ${streams.length} quality stream(s) returned`);
-  return streams;
+    const data = resp.data;
+    if (!data || !data.all_qualities || !Array.isArray(data.all_qualities)) {
+      console.log(`[Anime3rb] Resolver returned no qualities`);
+      return [];
+    }
+
+    const streams = [];
+    for (const q of data.all_qualities) {
+      const label = q.label || q.res || 'Auto';
+      const quality = q.res ? `${q.res}p` : 'Auto';
+
+      streams.push({
+        url: q.url,
+        label: `✅ ${label}`,
+        quality,
+        isEmbed: false,
+        providerId: 'direct',
+      });
+    }
+
+    console.log(`[Anime3rb] ${streams.length} direct stream(s) from resolver`);
+    return streams;
+  } catch (err) {
+    console.log(`[Anime3rb] Resolver /extract failed: ${err.message}`);
+    return [];
+  }
 }
 
 module.exports = {

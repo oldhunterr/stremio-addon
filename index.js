@@ -206,6 +206,12 @@ app.get('/stream/:type/:id.json', async (req, res) => {
         continue;
       }
 
+      // Direct provider: URL is already a playable video (pre-resolved by source)
+      if (s.providerId === 'direct') {
+        streams.push({ ...base, url: s.url, behaviorHints: { notWebReady: false } });
+        continue;
+      }
+
       if (PROXY_STREAMS) {
         // ── Proxy path: route through resolver ────────────────────────────
 
