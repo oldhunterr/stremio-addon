@@ -78,15 +78,6 @@ const CATALOGS = [
   { id: 'special',  name: 'حلقات خاصة',    url: `${BASE_URL}/titles/list/special` },
 ];
 
-const PROVIDER_MAP = {
-  'video.vid3rb.com': 'vid3rb',
-  'www.video.vid3rb.com': 'vid3rb',
-};
-
-const knownProviders = {
-  'vid3rb': 'direct',
-};
-
 const mkId    = (url)  => makeId(url, BASE_URL);
 const toUrl   = (enc)  => idToUrl(enc, BASE_URL);
 const resolve = (href) => resolveUrl(href, BASE_URL);
@@ -98,7 +89,6 @@ function buildUrl(catalogId, page = 1, genre, type, age) {
 
   if (page > 1) params.set('page', page);
 
-  // Genre filter — site uses ?genres[]=slug on the list page
   if (genre) {
     const genres = Array.isArray(genre) ? genre : [genre];
     genres.forEach(g => {
@@ -107,7 +97,6 @@ function buildUrl(catalogId, page = 1, genre, type, age) {
     });
   }
 
-  // Age rating filter — site uses ?age_ratings[]=value
   if (age) {
     const ages = Array.isArray(age) ? age : [age];
     ages.forEach(a => params.append('age_ratings[]', a));
@@ -116,19 +105,16 @@ function buildUrl(catalogId, page = 1, genre, type, age) {
   let url = cat.url;
   const qs = params.toString();
   if (qs) url += (url.includes('?') ? '&' : '?') + qs;
-
   return url;
 }
 
-function parseTitleCard($, el, label = '') {
+function parseTitleCard($, el) {
   const $el = $(el);
   const $imgLink = $el.find('a.btn-plain.w-full').first();
   const href = $imgLink.attr('href') || '';
   const title = $imgLink.find('h2.title-name').first().text().trim();
   const thumb = $imgLink.find('img').first().attr('src') || '';
-
   if (!href || !title) return null;
-
   return {
     id: mkId(resolve(href)),
     title,
@@ -137,24 +123,13 @@ function parseTitleCard($, el, label = '') {
   };
 }
 
-function getProviderId(embedUrl) {
-  try {
-    const hostname = new URL(embedUrl).hostname.replace(/^www\./, '');
-    return PROVIDER_MAP[hostname] || null;
-  } catch {
-    return null;
-  }
-}
-
 async function getCatalog(catalogId, page = 1, extra = {}) {
   const url = buildUrl(catalogId, page, extra.genre, extra.type, extra.age);
   const html = await fetchPage(url, BASE_URL, plain());
-
   if (!html) return { items: [], hasNextPage: false };
 
   const $ = cheerio.load(html);
   const items = [];
-
   $('.title-card').each((_, el) => {
     const item = parseTitleCard($, el);
     if (item) items.push(item);
@@ -163,25 +138,20 @@ async function getCatalog(catalogId, page = 1, extra = {}) {
   const nextBtn = $('button:contains("التالي"):not([disabled]), button:contains("التالى"):not([disabled])');
   const hasNextPage = nextBtn.length > 0 || !!$('[wire\\:click*="nextPage"]:not([disabled])').length;
 
-  console.log(`[Anime3rb] Catalog "${catalogId}" page ${page} → ${items.length} items`);
   return { items, hasNextPage };
 }
 
-async function search(query, extra = {}) {
+async function search(query) {
   const url = `${BASE_URL}/search?q=${encodeURIComponent(query)}`;
   const html = await fetchPage(url, BASE_URL, plain());
-
   if (!html) return [];
 
   const $ = cheerio.load(html);
   const items = [];
-
   $('.title-card').each((_, el) => {
     const item = parseTitleCard($, el);
     if (item) items.push(item);
   });
-
-  console.log(`[Anime3rb] Search "${query}" → ${items.length} items`);
   return items;
 }
 
@@ -213,17 +183,16 @@ async function getMeta(encodedId) {
   }
 
   const episodeLinks = [];
-
   $('a[href*="/episode/"]').each((_, el) => {
     const $a = $(el);
     const href = $a.attr('href') || '';
     const epMatch = href.match(/\/episode\/[^/]+\/(\d+)/);
     const epNum = epMatch ? parseInt(epMatch[1]) : 0;
+    if (!href || !epNum) return;
+
     const epNumText = $a.find('.video-data span').first().text().trim() || `الحلقة ${epNum}`;
     const epNameText = $a.find('.video-data p').first().text().trim();
     const epTitle = epNameText ? `${epNumText} — ${epNameText}` : epNumText;
-
-    if (!href || !epNum) return;
 
     episodeLinks.push({
       id: mkId(resolve(href)),
@@ -234,154 +203,74 @@ async function getMeta(encodedId) {
     });
   });
 
-  const uniqueEpisodes = [];
+  const unique = [];
   const seenHrefs = new Set();
   for (const ep of episodeLinks) {
     if (!seenHrefs.has(ep.href)) {
       seenHrefs.add(ep.href);
-      uniqueEpisodes.push(ep);
+      unique.push(ep);
     }
   }
 
-  return { title, thumb, description, genres, episodeLinks: uniqueEpisodes };
+  return { title, thumb, description, genres, episodeLinks: unique };
 }
 
 async function getStreams(encodedId) {
-  const url = toUrl(encodedId);
-  if (!url) return [];
+  const episodeUrl = toUrl(encodedId);
+  if (!episodeUrl) return [];
 
-  console.log(`[Anime3rb] getStreams ${url}`);
-
-  const html = await fetchPage(url, BASE_URL, plain({ noCache: true }));
-  if (!html) return [];
+  console.log(`[Anime3rb] getStreams ${episodeUrl}`);
 
   const streams = [];
   const seen = new Set();
 
+  // Fetch the episode page to discover available qualities from download labels
+  const html = await fetchPage(episodeUrl, BASE_URL, plain({ noCache: true }));
+  if (!html) return [];
+
   const $ = cheerio.load(html);
 
-  // 1. Extract server label from the active video source button
-  let serverLabel = 'ترجمة';
-  $('button[data-video-source]').each((_, el) => {
-    const lbl = $(el).find('span[class*="truncate"]').text().trim();
-    if (lbl) serverLabel = lbl;
-  });
-
-  // 2. Main video player URL from Livewire snapshot
-  let videoUrl = null;
-  $('[wire\\:snapshot]').each((_, el) => {
-    const snap = $(el).attr('wire:snapshot');
-    if (!snap || !snap.includes('video.show-video')) return;
-    try {
-      const parsed = JSON.parse(snap);
-      const raw = parsed.data?.video_url;
-      if (raw) videoUrl = raw.replace(/\\\//g, '/').replace(/&amp;/g, '&');
-    } catch (_) {}
-  });
-
-  // 3. Fetch the player page to extract actual video source URLs
-  let hasVideoSources = false;
-  if (videoUrl) {
-    try {
-      const axios = require('axios');
-      const playerResp = await axios.get(videoUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-          'Referer': BASE_URL + '/',
-          'Accept': '*/*',
-        },
-        timeout: 15000,
-        validateStatus: () => true,
-      });
-      const playerHtml = playerResp.data;
-      if (playerHtml && typeof playerHtml === 'string') {
-        const srcMatch = playerHtml.match(/var video_sources\s*=\s*(\[[\s\S]*?\]);/);
-        if (srcMatch) {
-          try {
-            const sources = JSON.parse(srcMatch[1]);
-            for (const src of sources) {
-              if (!src.src || seen.has(src.src)) continue;
-              const label = src.label || '';
-              const quality = src.res ? src.res.replace(/^(\d+).*$/, '$1p') : 'Auto';
-              const isPremium = src.premium;
-              const cleanUrl = src.src.replace(/\\\//g, '/');
-
-              seen.add(cleanUrl);
-              streams.push({
-                url: cleanUrl,
-                label: `${isPremium ? '⭐' : '✅'} ${label} [${quality}]`,
-                isEmbed: false,
-                quality,
-                providerId: 'vid3rb',
-              });
-              console.log(`  [Stream] ${isPremium ? '⭐' : '✅'} ${label} [${quality}] → ${cleanUrl.substring(0, 80)}`);
-              hasVideoSources = true;
-            }
-          } catch (_) {}
-        }
-      }
-    } catch (_) {}
-  }
-
-  // 4. Download links with quality labels (always try, dedup by seen set)
+  // Extract quality labels from the download section
+  const qualities = [];
   $('a[href*="/download/"]').each((_, el) => {
-    const $a = $(el);
-    const href = $a.attr('href') || '';
-    if (!href || seen.has(href)) return;
-
-    const label = $a.parent().find('label').first().text().trim()
-      || $a.closest('[class*="flex"]').find('label').first().text().trim()
+    const label = $(el).parent().find('label').first().text().trim()
+      || $(el).closest('[class*="flex"]').find('label').first().text().trim()
       || '';
-
     if (!label) return;
 
-    const qualityMatch = label.match(/\[(.+?)\]/);
-    const quality = qualityMatch ? qualityMatch[1] : 'Auto';
-    const cleanLabel = label.replace(/\[.+?\]/g, '').trim() || label;
-
-    seen.add(href);
-      streams.push({
-        url: href,
-        label: `📥 ${cleanLabel} [${quality}]`,
-        isEmbed: false,
-        quality,
-        providerId: 'vid3rb',
-      });
-    console.log(`  [Stream] 📥 ${cleanLabel} [${quality}] → ${href.substring(0, 80)}`);
+    const qMatch = label.match(/\[(.+?)\]/);
+    if (!qMatch) return;
+    qualities.push(qMatch[1]);
   });
 
-  // 5. Add player URL as browser fallback
-  if (videoUrl && !seen.has(videoUrl)) {
-    seen.add(videoUrl);
+  // Deduplicate and sort qualities
+  const unique = [...new Set(qualities)];
+  const sortOrder = ['4K', '1080p HEVC', '1080p', '720p', '480p', '360p'];
+  unique.sort((a, b) => sortOrder.indexOf(a) - sortOrder.indexOf(b));
+
+  // If no qualities found, provide a default
+  const qualityList = unique.length > 0 ? unique : ['Auto'];
+
+  for (const q of qualityList) {
+    if (seen.has(q)) continue;
+    seen.add(q);
+
     streams.push({
-      url: videoUrl,
-      label: `${serverLabel}`,
+      url:    episodeUrl,
+      label:  `✅ ${q}`,
+      quality: q,
       isEmbed: false,
-      quality: 'Auto',
-      providerId: 'vid3rb',
+      providerId: 'anime3rb',
     });
   }
 
-  if (streams.length === 0) {
-    streams.push({
-      url: url,
-      label: '🌐 فتح في المتصفح',
-      isEmbed: true,
-      quality: '—',
-      providerId: null,
-    });
-  }
-
-  console.log(`[Anime3rb] ${streams.length} stream(s) returned`);
+  console.log(`[Anime3rb] ${streams.length} quality stream(s) returned`);
   return streams;
 }
 
 module.exports = {
   SITE_ID, SITE_NAME, SITE_LOGO, SITE_BASE_URL,
   NEEDS_FLARESOLVERR, SEARCH_ENABLED, PROXY_IMAGES, PROXY_STREAMS,
-  CATALOGS,
-  EXTRA_SUPPORTED,
-  GENRES,
-  AGE_RATINGS,
+  CATALOGS, EXTRA_SUPPORTED, GENRES, AGE_RATINGS,
   getCatalog, search, getMeta, getStreams,
 };

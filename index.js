@@ -240,6 +240,17 @@ app.get('/stream/:type/:id.json', async (req, res) => {
           // Fall through to /stream URL if extract fails
         }
 
+        // Anime3rb: pass episode URL + quality to resolver (it handles extraction)
+        if (s.providerId === 'anime3rb') {
+          const proxyUrl = `${RESOLVER}/stream?url=${encodeURIComponent(s.url)}${s.quality ? '&quality=' + encodeURIComponent(s.quality) : ''}`;
+          streams.push({
+            ...base,
+            url: proxyUrl,
+            behaviorHints: { notWebReady: false },
+          });
+          continue;
+        }
+
         // Standard providers: construct resolver proxy URL (Stremio calls it on play)
         const enc = Buffer.from(s.url).toString('base64');
         const proxyUrl = `${RESOLVER}/stream?url=${encodeURIComponent(enc)}`;
