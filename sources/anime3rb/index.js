@@ -10,6 +10,7 @@ const SITE_BASE_URL      = BASE_URL;
 const NEEDS_FLARESOLVERR = false;
 const SEARCH_ENABLED     = true;
 const PROXY_IMAGES       = true;
+const PROXY_STREAMS      = true;
 
 const EXTRA_SUPPORTED = ['genre', 'age'];
 
@@ -377,7 +378,7 @@ async function getStreams(encodedId) {
 
 module.exports = {
   SITE_ID, SITE_NAME, SITE_LOGO, SITE_BASE_URL,
-  NEEDS_FLARESOLVERR, SEARCH_ENABLED, PROXY_IMAGES,
+  NEEDS_FLARESOLVERR, SEARCH_ENABLED, PROXY_IMAGES, PROXY_STREAMS,
   CATALOGS,
   EXTRA_SUPPORTED,
   GENRES,
