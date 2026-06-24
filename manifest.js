@@ -64,6 +64,9 @@ function buildManifest(sources, baseUrl) {
       if (meta.extraSupported?.includes('type') && meta.types?.length) {
         extra.push({ name: 'type', options: meta.types });
       }
+      if (meta.extraSupported?.includes('age') && meta.ageRatings?.length) {
+        extra.push({ name: 'age', options: meta.ageRatings.map(a => a.value) });
+      }
 
       catalogs.push({
         id:   `${meta.id}:${cat.id}`,

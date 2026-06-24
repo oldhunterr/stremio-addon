@@ -95,6 +95,7 @@ app.get(['/catalog/:type/:id.json', '/catalog/:type/:id/:extra.json', '/catalog/
         genre:    extra.genre,
         type:     extra.type,
         category: extra.category,
+        age:      extra.age,
       });
       items = result.items || result;
       hasNextPage = result.hasNextPage ?? false;
@@ -247,15 +248,15 @@ app.get('/stream/:type/:id.json', async (req, res) => {
           url: proxyUrl,
           behaviorHints: { notWebReady: false },
         });
-
-      } else {
-        // ── Direct path: pass scraper URL straight to Stremio ────────────
-        streams.push({
-          ...base,
-          url: s.url,
-          behaviorHints: { notWebReady: false },
-        });
+        continue;
       }
+
+      // ── Direct path: pass scraper URL straight to Stremio ────────────
+      streams.push({
+        ...base,
+        url: s.url,
+        behaviorHints: { notWebReady: false },
+      });
     }
 
     console.log(`[Stream] → ${streams.length} streams total`);
@@ -266,7 +267,7 @@ app.get('/stream/:type/:id.json', async (req, res) => {
   }
 });
 
-// ─── Proxy (forwards to url-resolver-v2 for on-demand stream resolution) ─────
+// ─── Proxy (forwards to url-resolver-v2 or fetches directly) ──────────────────
 app.get('/proxy', async (req, res) => {
   const targetUrl = req.query.url;
   const method    = req.query.method || 'auto';
@@ -275,14 +276,66 @@ app.get('/proxy', async (req, res) => {
     if (isCompanionMode) return res.redirect('/proxy/error.m3u8?msg=' + encodeURIComponent('Missing ?url= parameter'));
     return res.status(400).send('Missing ?url=');
   }
-  // Forward to url-resolver-v2's proxy endpoint
-  const proxyUrl = `${RESOLVER}/proxy?url=${encodeURIComponent(targetUrl)}&method=${method}`;
+  // Try url-resolver-v2 first
+  const resolverUrl = `${RESOLVER}/proxy?url=${encodeURIComponent(targetUrl)}&method=${method}`;
   try {
-    const resp = await axios.get(proxyUrl, {
+    const resp = await require('axios').get(resolverUrl, {
       responseType: 'stream',
       timeout: 60000,
       validateStatus: () => true,
     });
+    if (resp.status < 400) {
+      res.status(resp.status);
+      for (const [k, v] of Object.entries(resp.headers)) {
+        if (k !== 'transfer-encoding') res.set(k, v);
+      }
+      resp.data.pipe(res);
+      return;
+    }
+    if (resp.data) { try { resp.data.destroy(); } catch (_) {} }
+  } catch (_) {}
+
+  // Fallback: direct proxy with proper headers and cookies
+  try {
+    const hostname = new URL(targetUrl).hostname.replace(/^www\./, '');
+    const isAnime3rb = hostname === 'video.vid3rb.com' || hostname === 'anime3rb.com' || hostname.endsWith('.vid3rb.com');
+    const referer = isAnime3rb ? 'https://anime3rb.com' : targetUrl;
+
+    // For anime3rb URLs, first get a session cookie from the main page
+    let cookieHeader = '';
+    if (isAnime3rb) {
+      try {
+        const jarResp = await require('axios').get('https://anime3rb.com/', {
+          timeout: 10000,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          },
+          validateStatus: () => true,
+          maxRedirects: 5,
+        });
+        const setCookies = jarResp.headers['set-cookie'];
+        if (setCookies) {
+          cookieHeader = (Array.isArray(setCookies) ? setCookies : [setCookies])
+            .map(c => c.split(';')[0]).join('; ');
+        }
+      } catch (_) {}
+    }
+
+    const resp = await require('axios').get(targetUrl, {
+      responseType: 'stream',
+      timeout: 60000,
+      maxRedirects: 5,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Referer': referer,
+        'Origin': isAnime3rb ? 'https://anime3rb.com' : undefined,
+        'Accept': '*/*',
+        'Accept-Language': 'ar,en-US;q=0.9,en;q=0.8',
+        ...(cookieHeader ? { 'Cookie': cookieHeader } : {}),
+      },
+      validateStatus: () => true,
+    });
+
     if (resp.status >= 400 && isCompanionMode) {
       if (resp.data) { try { resp.data.destroy(); } catch (_) {} }
       return res.redirect('/proxy/error.m3u8?msg=' + encodeURIComponent(`Upstream returned ${resp.status}`));
@@ -489,7 +542,16 @@ app.get('/filter', async (req, res) => {
 });
 
 // ─── Image proxy ──────────────────────────────────────────────────────────────
+const IMG_ORIGIN_MAP = {
+  'images.anime3rb.com': 'https://anime3rb.com',
+};
+
 app.get('/img/:encoded', async (req, res) => {
+  res.set('Access-Control-Allow-Origin', '*');
+  res.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.set('Access-Control-Allow-Headers', '*');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+
   try {
     if (!req.params.encoded || !/^[a-zA-Z0-9_-]+$/.test(req.params.encoded)) {
       return res.status(400).send('Invalid encoding');
@@ -505,7 +567,10 @@ app.get('/img/:encoded', async (req, res) => {
       return res.status(400).send('Invalid image URL');
     }
 
-    const result = await fetchImage(imageUrl);
+    const hostname = new URL(imageUrl).hostname.replace(/^www\./, '');
+    const referer = IMG_ORIGIN_MAP[hostname] || `https://${hostname}`;
+
+    const result = await fetchImage(imageUrl, referer);
     if (!result) return res.status(502).send('Image fetch failed');
 
     res.set('Content-Type', result.contentType || 'image/jpeg');

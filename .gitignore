@@ -9,3 +9,8 @@ tests_e2e.log
 
 # Scripts
 git-push.cmd
+
+# Temp / debug files
+*.err
+*.html
+_run_addon.cmd
