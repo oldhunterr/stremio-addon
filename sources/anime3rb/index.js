@@ -142,9 +142,10 @@ async function getCatalog(catalogId, page = 1, extra = {}) {
   return { items, hasNextPage };
 }
 
-async function search(query) {
+async function search(query, extra = {}) {
+  // Use FlareSolverr to bypass Cloudflare on the search endpoint
   const url = `${BASE_URL}/search?q=${encodeURIComponent(query)}`;
-  const html = await fetchPage(url, BASE_URL, plain());
+  const html = await fetchPage(url, BASE_URL, { useFS: true, noCache: true });
   if (!html) return [];
 
   const $ = cheerio.load(html);
