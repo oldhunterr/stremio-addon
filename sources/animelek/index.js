@@ -502,8 +502,8 @@ function addStream(rawUrl, label, quality, providerId) {
     // Determine quality from the server label text
     const quality = srv.match(/\b(FHD|HD|SD|4K|1080p|720p|480p|360p)\b/i)?.[1] || 'Auto';
 
-    // Map this embed URL to a provider ID
-    const providerId = getProviderId(actualUrl);
+    // Map this embed URL to a provider ID (unknown providers go through /stream)
+    const providerId = getProviderId(actualUrl) || 'generic';
 
     addStream(actualUrl, `${srv} — ${quality}`, quality, providerId);
   }
@@ -513,7 +513,7 @@ function addStream(rawUrl, label, quality, providerId) {
     $('iframe[src]:not([src=""]):not([src="about:blank"])').each((i, el) => {
       const src = $(el).attr('src') || '';
       if (src) {
-        const providerId = getProviderId(src);
+        const providerId = getProviderId(src) || 'generic';
         addStream(src, `مشغل ${i + 1}`, 'Auto', providerId);
       }
     });
