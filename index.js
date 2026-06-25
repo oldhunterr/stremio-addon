@@ -215,8 +215,8 @@ app.get('/stream/:type/:id.json', async (req, res) => {
       if (PROXY_STREAMS) {
         // ── Proxy path: route through resolver ────────────────────────────
 
-        // Multi-mirror (share4max): /extract returns list of proxyUrls
-        if (s.providerId === 'share4max') {
+        // Multi-mirror (share4max / megamax): /extract returns list of proxyUrls
+        if (s.providerId === 'share4max' || s.providerId === 'megamax') {
           console.log(`[Stream] Extracting ${s.providerId}: ${s.url.substring(0,60)}`);
           try {
             const enc = Buffer.from(s.url).toString('base64');
